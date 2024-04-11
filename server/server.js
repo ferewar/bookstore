@@ -5,6 +5,7 @@ const { ApolloServer } = require('@apollo/server');
 const { expressMiddleware } = require('@apollo/server/express4');
 const { authMiddleware } = require('./utils/auth');
 
+const { MongoClient, ServerApiVersion } = require('mongodb');
 
 const { typeDefs, resolvers } = require('./schemas');
 const db = require('./config/connection');
@@ -17,32 +18,45 @@ const server = new ApolloServer({
 });
 // Create an Express application.
 const app = express();
-// Asynchronously starts the Apollo server and configures middleware.
-const startApolloServer = async () => {
-  await server.start();
-  // Middleware to parse incoming requests with URL-encoded payloads and JSON payloads.
-  app.use(express.urlencoded({ extended: false }));
-  app.use(express.json());
-  
-  app.use('/graphql', expressMiddleware(server, {
-    context: authMiddleware
-  }));
-// Serve static files from the React app in production mode.
-  if (process.env.NODE_ENV === 'production') {
-    app.use(express.static(path.join(__dirname, '../client/dist')));
 
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(__dirname, '../client/dist/index.html'));
-    });
-  }
-// Connect to the database before starting the Express server.
-  db.once('open', () => {
+const uri = process.env.MONGODB_URI;
+const client = new MongoClient(uri, {
+  serverApi: ServerApiVersion.v1,
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+});
+
+// Asynchronously starts the Apollo server and configures middleware.
+const startServer = async () => {
+  try {
+    await client.connect();
+    console.log("Connected to MongoDB");
+
+    await server.start();
+    
+    app.use(express.urlencoded({ extended: false }));
+    app.use(express.json());
+    
+    app.use('/graphql', expressMiddleware(server, {
+      context: authMiddleware,
+    }));
+    if (process.env.NODE_ENV === 'production') {
+      app.use(express.static(path.join(__dirname, '../client/dist')));
+
+      app.get('*', (req, res) => {
+        res.sendFile(path.join(__dirname, '../client/dist/index.html'));
+      });
+    }
     app.listen(PORT, () => {
       console.log(`API server running on port ${PORT}!`);
       console.log(`Use GraphQL at http://localhost:${PORT}/graphql`);
     });
-  });
+  } catch (err) {
+    console.error(err);
+  } finally {
+    await client.close();
+  }
 };
 
 // Start the server
-startApolloServer();
+startServer();
